@@ -180,8 +180,10 @@ characters per token.
 - **Compaction and title calls are skipped.** Those carry a `purpose`, and
   truncating them would corrupt harness-owned output rather than a response.
 - **Runtime imports.** The plugin uses `node:crypto` and `node:module`; it never
-  imports harness packages at runtime, because they are not resolvable from an
-  installed profile.
+  imports harness packages, because they are not resolvable from an installed
+  profile. The Plugins-page form is the one thing that needs one:
+  `@deepseek-ai/schemastery` is resolved at runtime, and an environment that
+  cannot resolve it keeps every behaviour and loses only the form.
 
 ## Layout
 
