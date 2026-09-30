@@ -194,7 +194,7 @@ test('the owning agent\u2019s own option is the ceiling when the request omits o
   assert.deepEqual(seen.at(-1), { type: 'finish', reason: { kind: 'max-tokens' } })
 })
 
-test('an undisclosed ceiling leaves the response alone', async () => {
+test('an undisclosed ceiling leaves the response alone and says so', async () => {
   const agent = fakeAgent({ id: 'solo' })
   const { ctx, listeners, lines } = fakeContext({
     agents: fakeAgents([agent]),
@@ -203,26 +203,39 @@ test('an undisclosed ceiling leaves the response alone', async () => {
   apply(ctx, {})
   const seen = await stream(listenerOf(listeners), { sessionId: 'solo', provider: 'p', model: 'm' }, LONG)
   assert.deepEqual(seen, LONG)
-  assert.equal(lines.filter(([level]) => level === 'warn').length, 0, 'a quiet model is not a warning')
+  const warnings = lines.filter(([level]) => level === 'warn')
+  assert.equal(warnings.length, 1, 'standing aside is reported, not hidden')
+  assert.match(String(warnings[0][1]), /standing aside/)
 })
 
-test('an undisclosed ceiling still hands a provider-side truncation back', async () => {
+test('an undisclosed ceiling stands aside, says so once, and cuts nothing', async () => {
   const parent = fakeAgent({ id: 'parent-1' })
   const child = fakeAgent({ id: 'child-1', header: { id: 'child-1', origin: 'subagent', parentSession: 'parent-1' } })
-  const { ctx, listeners } = fakeContext({
+  const { ctx, listeners, lines } = fakeContext({
     agents: fakeAgents([parent, child]),
     llm: { resolveModelInfo: async () => ({}) },
   })
   apply(ctx, {})
 
-  // The adapter truncates where the plugin could not: no ceiling was disclosed,
-  // so the pre-emptive half has nothing to fire at, and the child is handed back
-  // only because the provider's own cut is still watched for.
+  // No ceiling was disclosed, so there is no number to cut against: the response
+  // stays exactly what the provider sent, even when the provider truncates it.
   const truncated = [...LONG.slice(0, 3), { type: 'finish', reason: { kind: 'max-tokens' } }]
-  const seen = await stream(listenerOf(listeners), { sessionId: 'child-1', provider: 'p', model: 'm' }, truncated)
+  const call = { sessionId: 'child-1', provider: 'p', model: 'm' }
+  const seen = await stream(listenerOf(listeners), call, truncated)
   assert.deepEqual(seen, truncated, 'the provider\u2019s own stream is passed through untouched')
-  assert.equal(parent.steered.length, 1)
-  assert.match(parent.steered[0].content[0].text, /child-1/)
+  assert.equal(parent.steered.length, 0, 'an unarmed call is not cut and not handed back')
+
+  const warnings = () => lines.filter(([level]) => level === 'warn').map(([, line]) => String(line))
+  assert.equal(warnings().length, 1)
+  assert.match(warnings()[0], /no output ceiling for p\/m/)
+  assert.match(warnings()[0], /maxTokens/, 'the warning names the configuration that arms it')
+
+  // One line per model, not one per response — but a second model is its own case.
+  await stream(listenerOf(listeners), call, LONG)
+  assert.equal(warnings().length, 1)
+  await stream(listenerOf(listeners), { ...call, model: 'other' }, LONG)
+  assert.equal(warnings().length, 2)
+  assert.match(warnings()[1], /no output ceiling for p\/other/)
 })
 
 test('a discovery failure is reported once and never breaks the response', async () => {
@@ -236,8 +249,12 @@ test('a discovery failure is reported once and never breaks the response', async
     },
   })
   apply(ctx, {})
-  const seen = await stream(listenerOf(listeners), { sessionId: 'solo', provider: 'p', model: 'm' }, LONG)
+  const call = { sessionId: 'solo', provider: 'p', model: 'm' }
+  const seen = await stream(listenerOf(listeners), call, LONG)
   assert.deepEqual(seen, LONG)
+  // The lookup is retried on every call, because a failure is not cached; its
+  // report is, so a route that is offline for an hour still writes one line.
+  await stream(listenerOf(listeners), call, LONG)
   const warnings = lines.filter(([level]) => level === 'warn')
   assert.equal(warnings.length, 1)
   assert.match(String(warnings[0][1]), /discovery is offline/)

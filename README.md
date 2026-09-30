@@ -63,10 +63,20 @@ you already get DSH's own notice. A `subagent_fork` is not notified either — i
 shares lineage without being a delegation, and steering its "parent" would
 interrupt an unrelated conversation.
 
-**3. The hand-off does not depend on the estimate.** If the ceiling was never
-disclosed, or the estimate ran low, the provider truncates on its own — and this
-plugin reports *that* through the same path. Detecting both kinds of cut is what
-keeps a child's continuation automatic in every case.
+**3. A call with no ceiling is left alone.** The cutoff is arithmetic, not
+guesswork: when no ceiling can be resolved the plugin does not invent one, does
+not wrap the stream, does not cut, and hands the response through exactly as the
+harness would have. It says so once per model, rather than once per response:
+
+```
+[dsh-auto-stop] no output ceiling for ali/deepseek-v4.1-flash: standing aside (declare maxTokens on the model entry to arm the early cutoff)
+```
+
+Where the ceiling *is* known but the estimate ran low, the provider truncates on
+its own — and that cut is still reported through the same hand-off path, so a
+child's continuation never depends on the estimate being right.
+
+`defaultMaxTokens` therefore has to come from somewhere; see *Arming the cutoff*.
 
 ## Install
 
@@ -129,10 +139,13 @@ A declared ceiling is disclosed once per model, and the plugin logs it:
 [dsh-auto-stop] ali/deepseek-v4.1-flash reports a 32768-token output ceiling
 ```
 
-Until a model's ceiling is declared, that model is not guarded pre-emptively —
-and the plugin says nothing per call — but its parent hand-off still works,
-because that path is driven by the provider's own truncation rather than by the
-estimate (see *Limitations*).
+Until a model's ceiling is declared, the plugin takes **no action at all** on that
+model's calls: no cutoff, no meter, no hand-off. The first call it sees for the
+model writes the standing-aside line above; later calls to the same model are
+silent, and a second model is its own case. That is the honest answer for an
+undeclared model — without a number there is nothing to stop a reserve early, and
+a turn cut early on a guess would be this plugin's error rather than the model's
+limit.
 
 ## Configuration
 
@@ -168,15 +181,16 @@ characters per token.
 - **CJK is estimated per character** (~1 token each) rather than by DSH's flat
   4-chars-per-token rule, which over-counts CJK output fourfold. Widen or narrow
   `cjkTokensPerChar` and `charsPerToken` if your models disagree.
-- **A model whose ceiling is never disclosed is not cut early** — the call is
-  still watched, so the provider's own truncation is detected and a truncated
-  child is still handed back, but nothing stops it a reserve early.
-  `defaultMaxTokens` reaches `resolveModelInfo` only when the model's own entry
-  declares `maxTokens` ([Arming the cutoff](#arming-the-cutoff)): a route's
-  `defaultMaxTokens` is the internal catalog fallback and is never disclosed, and
-  a route listing its models as plain `id`/`name` entries declares nothing.
-  Resolution is asked once per model and cached, and a disclosed ceiling is
-  logged.
+- **A model whose ceiling is never disclosed is not touched at all.** No cutoff is
+  armed and nothing is metered, so a child that runs out of room on such a model
+  is *not* handed back: the provider truncates and the turn ends exactly as it did
+  before this plugin existed. One log line per model names the configuration that
+  arms it ([Arming the cutoff](#arming-the-cutoff)). `defaultMaxTokens` reaches
+  `resolveModelInfo` only when the model's own entry declares `maxTokens`: a
+  route's `defaultMaxTokens` is the internal catalog fallback and is never
+  disclosed, and a route listing its models as plain `id`/`name` entries declares
+  nothing. Resolution is asked once per model and cached, and a disclosed ceiling
+  is logged.
 - **Compaction and title calls are skipped.** Those carry a `purpose`, and
   truncating them would corrupt harness-owned output rather than a response.
 - **Runtime imports.** The plugin uses `node:crypto` and `node:module`; it never

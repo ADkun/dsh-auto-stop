@@ -106,6 +106,28 @@ export function apply(ctx, rawConfig) {
   /** Disclosed output ceilings, keyed by provider and model. */
   const disclosed = new Map()
 
+  /** Models already reported as having no ceiling to meter against. */
+  const unarmed = new Set()
+
+  /**
+   * Say once per model that there is no ceiling to meter against.
+   *
+   * Silence is the one thing this must not do: the early cutoff would simply
+   * never happen, and nothing in the transcript would say why. The first reason
+   * found for a model is the one worth printing, so later ones are folded in.
+   *
+   * @param {unknown} provider - the call's provider name.
+   * @param {unknown} model - the call's model name.
+   * @param {string} detail - why there was no ceiling.
+   * @returns {void}
+   */
+  function reportUnarmed(provider, model, detail) {
+    const key = `${provider}\u0000${model}`
+    if (unarmed.has(key)) return
+    unarmed.add(key)
+    report('warn', `no output ceiling for ${provider}/${model}: ${detail}`)
+  }
+
   /** Resolve one session's live agent, when it is still registered. */
   function agentFor(sessionId) {
     if (sessionId === undefined || sessionId === null || agents === undefined) return undefined
@@ -122,7 +144,8 @@ export function apply(ctx, rawConfig) {
    * `defaultMaxTokens` is the per-request cap the adapter materializes when a
    * caller omits one, which is exactly the number a guarded call would run
    * under. Resolution is cached per model: it can cost a discovery round trip,
-   * and a failure is deliberately not cached so a transient one can recover.
+   * and a failure is deliberately not cached so a transient one can recover. Its
+   * report is cached, so a route that is unreachable for an hour writes one line.
    */
   async function disclosedMaxTokens(provider, model, signal) {
     if (llm === undefined || typeof provider !== 'string' || typeof model !== 'string') return undefined
@@ -137,7 +160,7 @@ export function apply(ctx, rawConfig) {
       report('info', `${provider}/${model} reports a ${value}-token output ceiling`)
       return value
     } catch (error) {
-      report('warn', `no output ceiling for ${provider}/${model}: ${reasonOf(error)}`)
+      reportUnarmed(provider, model, reasonOf(error))
       return undefined
     }
   }
@@ -202,11 +225,23 @@ export function apply(ctx, rawConfig) {
           yield* next()
           return
         }
-        // An undisclosed ceiling — or one too small to hold a reserve — only
-        // costs the pre-emptive half. The detection half still runs, because a
-        // provider-side truncation is what hands a child back in exactly the
-        // case the early cutoff could not fire.
-        const limit = resolveCutoff(await outputBudget(options), config)
+        // No ceiling is not a number to invent: the response is passed through
+        // exactly as the harness would have sent it, and the operator is told
+        // once per model. A ceiling that is merely too small to hold a reserve is
+        // a decision this plugin already made in `resolveCutoff`, not a warning.
+        const budget = await outputBudget(options)
+        const limit = resolveCutoff(budget, config)
+        if (limit === undefined) {
+          if (budget === undefined) {
+            reportUnarmed(
+              options?.provider,
+              options?.model,
+              'standing aside (declare maxTokens on the model entry to arm the early cutoff)',
+            )
+          }
+          yield* next()
+          return
+        }
         yield* guardStream(next(), {
           limit,
           estimate: (text) => estimateText(text, config),

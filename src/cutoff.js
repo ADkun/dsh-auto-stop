@@ -131,15 +131,13 @@ export function outputTokensOf(chunk, estimate) {
  * Two events are reported through `onCut`, and both mean the same thing to the
  * caller: this response stopped because it ran out of output room. `guarded`
  * means this wrapper stopped it; `truncated` means the provider did, which is
- * what happens whenever the estimate ran low or the ceiling was not disclosed.
- * Detecting both here is what keeps the parent hand-off working even when the
- * early cutoff never gets the chance to fire.
+ * what happens when the estimate ran low. Watching for the second is what keeps
+ * the parent hand-off working when the early cutoff fires too late to help.
  *
  * @param {AsyncIterable<object>} source - the downstream chunk stream.
  * @param {object} options - the guard's configuration.
- * @param {number} [options.limit] - the estimated output-token cutoff. Without
- * one there is nothing to cut at, and the wrapper degrades to a detector: it
- * carries the stream through and reports only a provider-side truncation.
+ * @param {number} options.limit - the estimated output-token cutoff. A call with
+ * no ceiling to meter against is never wrapped, so there is always one.
  * @param {(text: unknown) => number} options.estimate - the text estimator.
  * @param {(used: number, reason: 'guarded' | 'truncated') => void} [options.onCut]
  * - called at most once, before the response's real terminal state is visible.
@@ -147,7 +145,6 @@ export function outputTokensOf(chunk, estimate) {
  * @returns {AsyncGenerator<object>} the guarded stream.
  */
 export async function* guardStream(source, { limit, estimate, onCut }) {
-  const cutoff = Number.isFinite(limit) ? limit : undefined
   const open = new Map()
   // Pulled by hand rather than with `for await`, so that closing the source can
   // be made harmless. An abrupt `return` out of a `for await` loop calls the
@@ -195,7 +192,7 @@ export async function* guardStream(source, { limit, estimate, onCut }) {
       }
       yield chunk
       used += outputTokensOf(chunk, estimate)
-      if (cutoff === undefined || used < cutoff) continue
+      if (used < limit) continue
       announce('guarded')
       for (const [index, block] of open) {
         const assembled = closeBlock(index, block)
