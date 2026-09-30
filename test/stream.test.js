@@ -215,6 +215,19 @@ test('a provider that truncates on its own is reported, then passed through', as
   assert.deepEqual(cuts, [[200, 'truncated']])
 })
 
+test('without a cutoff the wrapper is a detector, not a cutter', async () => {
+  const chunks = [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: 'a'.repeat(700) },
+    { type: 'block-end', index: 0, block: { type: 'text', text: 'a'.repeat(700) } },
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ]
+  const cuts = []
+  const seen = await collect(guardStream(emit(chunks), { estimate, onCut: (used, reason) => cuts.push([used, reason]) }))
+  assert.deepEqual(seen, chunks, 'nothing is closed early and nothing is synthesized')
+  assert.deepEqual(cuts, [[200, 'truncated']], 'the provider\u2019s own cut is still reported')
+})
+
 test('the report fires once and only once, whatever the stream does', async () => {
   const cuts = []
   const onCut = (used, reason) => cuts.push([used, reason])

@@ -206,6 +206,25 @@ test('an undisclosed ceiling leaves the response alone', async () => {
   assert.equal(lines.filter(([level]) => level === 'warn').length, 0, 'a quiet model is not a warning')
 })
 
+test('an undisclosed ceiling still hands a provider-side truncation back', async () => {
+  const parent = fakeAgent({ id: 'parent-1' })
+  const child = fakeAgent({ id: 'child-1', header: { id: 'child-1', origin: 'subagent', parentSession: 'parent-1' } })
+  const { ctx, listeners } = fakeContext({
+    agents: fakeAgents([parent, child]),
+    llm: { resolveModelInfo: async () => ({}) },
+  })
+  apply(ctx, {})
+
+  // The adapter truncates where the plugin could not: no ceiling was disclosed,
+  // so the pre-emptive half has nothing to fire at, and the child is handed back
+  // only because the provider's own cut is still watched for.
+  const truncated = [...LONG.slice(0, 3), { type: 'finish', reason: { kind: 'max-tokens' } }]
+  const seen = await stream(listenerOf(listeners), { sessionId: 'child-1', provider: 'p', model: 'm' }, truncated)
+  assert.deepEqual(seen, truncated, 'the provider\u2019s own stream is passed through untouched')
+  assert.equal(parent.steered.length, 1)
+  assert.match(parent.steered[0].content[0].text, /child-1/)
+})
+
 test('a discovery failure is reported once and never breaks the response', async () => {
   const agent = fakeAgent({ id: 'solo' })
   const { ctx, listeners, lines } = fakeContext({

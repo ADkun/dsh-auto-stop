@@ -202,11 +202,11 @@ export function apply(ctx, rawConfig) {
           yield* next()
           return
         }
+        // An undisclosed ceiling — or one too small to hold a reserve — only
+        // costs the pre-emptive half. The detection half still runs, because a
+        // provider-side truncation is what hands a child back in exactly the
+        // case the early cutoff could not fire.
         const limit = resolveCutoff(await outputBudget(options), config)
-        if (limit === undefined) {
-          yield* next()
-          return
-        }
         yield* guardStream(next(), {
           limit,
           estimate: (text) => estimateText(text, config),
