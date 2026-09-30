@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Logs and scratch output
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

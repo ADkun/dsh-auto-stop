@@ -1,0 +1,57 @@
+{
+  "name": "dsh-auto-stop",
+  "version": "0.1.0",
+  "description": "DSH plugin: end a response just before its output-token ceiling, and make a subagent's parent agent continue it.",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "cordis-plugin",
+    "output-limit",
+    "max-tokens",
+    "subagent"
+  ],
+  "type": "module",
+  "main": "src/plugin.js",
+  "exports": {
+    ".": "./src/plugin.js",
+    "./config": "./src/config.js",
+    "./settings": "./src/settings.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "3.x"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "files": [
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ADkun/dsh-auto-stop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ADkun/dsh-auto-stop/issues"
+  },
+  "homepage": "https://github.com/ADkun/dsh-auto-stop#readme",
+  "scripts": {
+    "test": "node --test test"
+  }
+}

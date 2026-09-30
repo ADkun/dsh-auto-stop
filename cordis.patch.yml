@@ -1,0 +1,7 @@
+# Composition fragment installed by `plugin_manager` / the DSH profile.
+#
+# One row, no `config:` block: every option below has a working default, and the
+# row id is the address the Plugins page uses for this package's config form.
+- insert:
+    - id: dsh-auto-stop
+      name: 'dsh-auto-stop'
