@@ -70,12 +70,23 @@ keeps a child's continuation automatic in every case.
 
 ## Install
 
-```powershell
-# from the DSH harness, with this checkout on disk:
-plugin_manager install_bundle --target D:\dsh\dsh-auto-stop
+Install the bundle from this checkout, or straight from its repository:
+
+```yaml
+plugin_manager:
+  action: install_bundle
+  target: D:\dsh\dsh-auto-stop
 ```
 
-The bundle's `cordis.patch.yml` inserts one row:
+```yaml
+plugin_manager:
+  action: install_bundle
+  target: git@github.com:ADkun/dsh-auto-stop.git   # or: github:ADkun/dsh-auto-stop
+```
+
+A local target must be an absolute path; a `git@host:owner/repo` spec, the
+`github:owner/repo` shorthand, and a hosted repository URL are fetched through
+pnpm. The bundle's `cordis.patch.yml` inserts one row:
 
 ```yaml
 - insert:
@@ -83,8 +94,45 @@ The bundle's `cordis.patch.yml` inserts one row:
       name: 'dsh-auto-stop'
 ```
 
-No configuration is required. To remove it, drop the row (or disable it in the
-Plugins page).
+To remove the plugin, drop the row (or disable it in the Plugins page). On
+activation it says so in the log:
+
+```
+[dsh-auto-stop] armed: responses end just before their output ceiling, and a truncated child is handed back to its parent
+```
+
+### Arming the cutoff
+
+That line only means the listener is registered. The cutoff itself needs the
+call's output ceiling, and **DSH knows that number only when the model's entry in
+the provider configuration declares `maxTokens`.** A pi-ai route that hands its
+models over as a plain `id`/`name` list — an OpenAI-compatible gateway, the usual
+case — declares none, so declare the ceiling once per model:
+
+```yaml
+# llm-pi-ai provider config, per model
+- id: deepseek-v4.1-flash
+  name: deepseek-v4.1-flash
+  maxTokens: 32768        # the model's real output ceiling
+```
+
+One declaration does both jobs: DSH puts that number in every request, so the
+provider stops there, and the plugin meters against the same number to stop a
+reserve earlier. `32768` is pi-ai's own internal fallback, not a claim about any
+particular model — use the model's real ceiling. A value below it ends responses
+earlier than they need to; nothing declared leaves the provider's own limit in
+charge, which is exactly the case the plugin cannot see coming.
+
+A declared ceiling is disclosed once per model, and the plugin logs it:
+
+```
+[dsh-auto-stop] ali/deepseek-v4.1-flash reports a 32768-token output ceiling
+```
+
+Until a model's ceiling is declared, that model is not guarded pre-emptively —
+and the plugin says nothing per call — but its parent hand-off still works,
+because that path is driven by the provider's own truncation rather than by the
+estimate (see *Limitations*).
 
 ## Configuration
 
@@ -120,13 +168,18 @@ characters per token.
 - **CJK is estimated per character** (~1 token each) rather than by DSH's flat
   4-chars-per-token rule, which over-counts CJK output fourfold. Widen or narrow
   `cjkTokensPerChar` and `charsPerToken` if your models disagree.
-- **A model whose ceiling is never disclosed is not guarded pre-emptively** — it
-  is only detected, and only its parent hand-off fires. All built-in adapters
-  disclose `defaultMaxTokens`; `resolveModelInfo` is asked once per model and
-  cached.
+- **A model whose ceiling is never disclosed is not cut early** — the call is
+  still watched, so the provider's own truncation is detected and a truncated
+  child is still handed back, but nothing stops it a reserve early.
+  `defaultMaxTokens` reaches `resolveModelInfo` only when the model's own entry
+  declares `maxTokens` ([Arming the cutoff](#arming-the-cutoff)): a route's
+  `defaultMaxTokens` is the internal catalog fallback and is never disclosed, and
+  a route listing its models as plain `id`/`name` entries declares nothing.
+  Resolution is asked once per model and cached, and a disclosed ceiling is
+  logged.
 - **Compaction and title calls are skipped.** Those carry a `purpose`, and
   truncating them would corrupt harness-owned output rather than a response.
-- **File policy.** The plugin uses `node:crypto` and `node:module`; it never
+- **Runtime imports.** The plugin uses `node:crypto` and `node:module`; it never
   imports harness packages at runtime, because they are not resolvable from an
   installed profile.
 
